@@ -95,11 +95,14 @@ const (
 	adaptLoggerCriticalMsgCountAttr  = "critmsgcount"
 	predefinedPrefix                 = "std:"
 	connWriterID                     = "conn"
+	wechatWriterID                   = "wechat"
 	connWriterAddrAttr               = "addr"
 	connWriterNetAttr                = "net"
 	connWriterReconnectOnMsgAttr     = "reconnectonmsg"
 	connWriterUseTLSAttr             = "tls"
 	connWriterInsecureSkipVerifyAttr = "insecureskipverify"
+	wechatBaseUrl                    = "baseurl"
+	wechatSCKey                      = "sckey"
 )
 
 // CustomReceiverProducer is the signature of the function CfgParseParams needs to create
@@ -154,6 +157,7 @@ func init() {
 		bufferedWriterID:     {createbufferedWriter},
 		smtpWriterID:         {createSMTPWriter},
 		connWriterID:         {createconnWriter},
+		wechatWriterID:       {createwechatWriter},
 	}
 
 	err := fillPredefinedFormats()
@@ -775,6 +779,43 @@ func createfileWriter(node *xmlNode, formatFromParent *formatter, formats map[st
 	}
 
 	return NewFormattedWriter(fileWriter, currentFormat)
+}
+
+func createwechatWriter(node *xmlNode, formatFromParent *formatter, formats map[string]*formatter, cfg *CfgParseParams) (interface{}, error) {
+	err := checkUnexpectedAttribute(node, outputFormatID, wechatBaseUrl)
+	if err != nil {
+		return nil, err
+	}
+	// Node must have children.
+	if !node.hasChildren() {
+		return nil, errNodeMustHaveChildren
+	}
+	currentFormat, err := getCurrentFormat(node, formatFromParent, formats)
+	if err != nil {
+		return nil, err
+	}
+	baseurl, ok := node.attributes[wechatBaseUrl]
+	if !ok {
+		return nil, newMissingArgumentError(node.name, wechatBaseUrl)
+	}
+
+	// Process child nodes scanning for recipient wechat addresses
+	var scKeys []string
+	for _, childNode := range node.children {
+		switch childNode.name {
+		// Extract recipient address from child nodes.
+		case recipientID:
+			sckey, ok := childNode.attributes[wechatSCKey]
+			if !ok {
+				return nil, newMissingArgumentError(childNode.name, wechatSCKey)
+			}
+			scKeys = append(scKeys, sckey)
+		default:
+			return nil, newUnexpectedChildElementError(childNode.name)
+		}
+	}
+	wechatWriter := NewWechatWriter(baseurl, scKeys)
+	return NewFormattedWriter(wechatWriter, currentFormat)
 }
 
 // Creates new SMTP writer if encountered in the config file.
